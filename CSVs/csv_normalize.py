@@ -5,11 +5,39 @@ different column naming, added/subtracted columns, and/or (non-)collapsed column
 """
 
 import csv
+import enum
 import os
 import re
 
+class ColumnOptionsType(enum.Enum):
+    column_renames = 1
+    column_collapse_pairs = 2
+    new_columns = 3
 
-def reorder_columns_in_row(row, new_columns):
+def normalize_date(column):
+
+    # TODO: Add option to reverse the order of month and day.
+
+    pattern = r"^(\d{1,2})\/(\d{1,2})\/(\d{4})$"
+    match = re.search(pattern, column)
+    if match:  # Convert 01/02/2020 to 1/2/20
+        month = match.group(1).lstrip("0")
+        day = match.group(2).lstrip("0")
+        year = match.group(3)[2:]
+        column = f"{month}/{day}/{year}"
+
+    else:  # Convert 2020-01-02 to 1/2/20
+        pattern = r"^(\d{4})\-(\d{1,2})\-(\d{1,2})$"
+        match = re.search(pattern, column)
+        if match:
+            year = match.group(1)[2:]
+            month = match.group(2).lstrip("0")
+            day = match.group(3).lstrip("0")
+            column = f"{month}/{day}/{year}"
+
+    return column
+
+def reorder_columns_in_row(row, arg_new_columns):
 
     # new_columns is a list of (optionally re-ordered) columns to include in the output.
 
@@ -21,23 +49,23 @@ def reorder_columns_in_row(row, new_columns):
     #   new_columns = [0, 1, 2, 3, 7, 5, 9, 11]
 
     reordered_row = []
-    for column in new_columns:
+    for column in arg_new_columns:
         reordered_row.append(row[column])
 
     return reordered_row
 
 
-def rename_columns(row, column_renames):
+def rename_columns(row, arg_column_renames):
 
-    # column_renames is a list of column renaming pairs
+    # arg_column_renames is a list of column renaming pairs
 
     # For example, to rename column "Name1" to "First Name",
     # and column "Name2" as "Last Name", specify:
-    #   column_renames = [("Name1", "First Name"), ("Name2", "Last Name")]
+    #   arg_column_renames = [("Name1", "First Name"), ("Name2", "Last Name")]
 
     new_row = []
     for column in row:
-        for column_rename in column_renames:
+        for column_rename in arg_column_renames:
             column = column.replace(column_rename[0], column_rename[1])
         new_row.append(column)
 
@@ -70,16 +98,26 @@ def csv_sort(csv_file, sorted_csv_file, reverse=False):
         #   Sort non-header rows (leaving header row intact)
         write_file.writelines(rows)
 
-
-def csv_normalize(
+def do_csv_normalize(
     path,
     inp,
     out,
     out_sorted,
-    column_renames=None,
-    column_collapse_pairs=None,
-    new_columns=None,
+    column_options = None
 ):
+    """ 
+    
+    In order to avoid prospector linter's "pylint(too-many-arguments)" error,
+    I have consolidated 3 separate, but related arguments
+    (column_renames, column_collapse_pairs, and new_columns) into 1.
+
+    column_options is a dict which may specify values for 1 or more of the following keys:
+        column_renames, column_collapse_pairs, and/or new_columns
+    """
+
+    # Avoid "warning| Dangerous default value [] as argument"
+    if column_options is None:
+        column_options = {}
 
     os.chdir(path)
     with open(inp, newline="") as inp_file, open(out, mode="w", newline="") as out_file:
@@ -96,48 +134,35 @@ def csv_normalize(
                 new_row = []
                 for column in row:
 
-                    # TODO Option to allow the "decimal comma" as alternative decimal
+                    # TODO Add option to allow the "decimal comma" as alternative decimal
                     #      separator. See Wikipedia's
                     #           wiki/Decimal_separator#Countries_using_decimal_comma
-
-                    pattern = r"\d{1,}\.\d{0,}0"
+                    pattern = r"^\-{0,1}\d{1,}\.\d{0,}0$"
                     match = re.search(pattern, column)
                     if match:  # column is a decimal number ending in 0
-                        # Omit any trailing zeros,
-                        #   and then any trailing decimal point
+                        # Omit any trailing zeros, and then any trailing decimal point
                         column = column.rstrip("0").rstrip(".")
 
+                    pattern = r"^\-0$"
+                    match = re.search(pattern, column)
+                    if match:  # column value is negative 0
+                        column = "0"  # Replace with a non-negative 0
+                        
                     else:
-                        # TODO: Option to reverse the order of month and day.
-                        pattern = r"(\d{1,2})\/(\d{1,2})\/(\d{4})"
-                        match = re.search(pattern, column)
-                        if match:  # Convert 01/02/2020 to 1/2/20
-                            month = match.group(1).lstrip("0")
-                            day = match.group(2).lstrip("0")
-                            year = match.group(3)[2:]
-                            column = f"{month}/{day}/{year}"
-
-                        else:  # Convert 2020-01-02 to 1/2/20
-                            pattern = r"(\d{4})\-(\d{1,2})\-(\d{1,2})"
-                            match = re.search(pattern, column)
-                            if match:
-                                year = match.group(1)[2:]
-                                month = match.group(2).lstrip("0")
-                                day = match.group(3).lstrip("0")
-                                column = f"{month}/{day}/{year}"
+                        column = normalize_date(column)  # if column's a date, normalize it
 
                     new_row.append(column)
 
-                if column_collapse_pairs is not None:
-                    new_row = collapse_columns(new_row, column_collapse_pairs)
-                if new_columns is not None:
-                    new_row = reorder_columns_in_row(new_row, new_columns)
+                if ColumnOptionsType.column_collapse_pairs in column_options:
+                    new_row = collapse_columns(new_row, column_options[ColumnOptionsType.column_collapse_pairs])
+                if ColumnOptionsType.new_columns in column_options:
+                    new_row = reorder_columns_in_row(new_row, column_options[ColumnOptionsType.new_columns])
                 writer.writerow(new_row)
             else:  # index == 0; row is a column header row
-                if column_renames is not None:
-                    row = rename_columns(row, column_renames)
-                if new_columns is not None:
-                    row = reorder_columns_in_row(row, new_columns)
+                if ColumnOptionsType.column_renames in column_options:
+                    row = rename_columns(row, column_options[ColumnOptionsType.column_renames])
+                if ColumnOptionsType.new_columns in column_options:
+                    row = reorder_columns_in_row(row, column_options[ColumnOptionsType.new_columns])
                 writer.writerow(row)
 
     # Sort this CSV on the 1st (0-indexed) column
@@ -151,7 +176,7 @@ def csv_normalize(
 
 
 def main():
-    pass
+    pass  # TODO: Put example usage here
 
 
 if __name__ == "__main__":
