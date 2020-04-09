@@ -5,14 +5,8 @@ different column naming, added/subtracted columns, and/or (non-)collapsed column
 """
 
 import csv
-import enum
 import os
 import re
-
-class ColumnOptionsType(enum.Enum):
-    column_renames = 1
-    column_collapse_pairs = 2
-    new_columns = 3
 
 def normalize_date(column):
 
@@ -36,6 +30,32 @@ def normalize_date(column):
             column = f"{month}/{day}/{year}"
 
     return column
+
+def normalize_numbers_and_dates(row):
+
+    # TODO Add an option to allow the "decimal comma" as alternative decimal separator.
+    #      See Wikipedia's wiki/Decimal_separator#Countries_using_decimal_comma
+
+    new_row = []
+    for column in row:
+        
+        pattern = r"^\-{0,1}\d{1,}\.\d{0,}0$"
+        match = re.search(pattern, column)
+        if match:  # column is a decimal number ending in 0
+            # Omit any trailing zeros, and then any trailing decimal point
+            column = column.rstrip("0").rstrip(".")
+
+        pattern = r"^\-0$"
+        match = re.search(pattern, column)
+        if match:  # column value is negative 0
+            column = "0"  # Replace with a non-negative 0
+            
+        else:
+            column = normalize_date(column)  # if column's a date, normalize it
+
+        new_row.append(column)
+
+    return new_row
 
 def reorder_columns_in_row(row, arg_new_columns):
 
@@ -98,28 +118,12 @@ def csv_sort(csv_file, sorted_csv_file, reverse=False):
         #   Sort non-header rows (leaving header row intact)
         write_file.writelines(rows)
 
-def do_csv_normalize(
-    path,
-    inp,
-    out,
-    out_sorted,
-    column_options = None
-):
-    """ 
-    
-    In order to avoid prospector linter's "pylint(too-many-arguments)" error,
-    I have consolidated 3 separate, but related arguments
-    (column_renames, column_collapse_pairs, and new_columns) into 1.
-
-    column_options is a dict which may specify values for 1 or more of the following keys:
-        column_renames, column_collapse_pairs, and/or new_columns
-    """
-
-    # Avoid "warning| Dangerous default value [] as argument"
-    if column_options is None:
-        column_options = {}
+def do_csv_normalize(path, inp, column_renames=None, column_collapse_pairs=None, new_columns=None):
 
     os.chdir(path)
+    (root, ext) = os.path.splitext(inp)
+    out = f"{root}_2{ext}"
+    
     with open(inp, newline="") as inp_file, open(out, mode="w", newline="") as out_file:
 
         # Note that when the inp_file doesn't have a trailing blank line,
@@ -131,38 +135,21 @@ def do_csv_normalize(
         for index, row in enumerate(reader):
 
             if index:  # index != 0; row is not a row of column header row
-                new_row = []
-                for column in row:
 
-                    # TODO Add option to allow the "decimal comma" as alternative decimal
-                    #      separator. See Wikipedia's
-                    #           wiki/Decimal_separator#Countries_using_decimal_comma
-                    pattern = r"^\-{0,1}\d{1,}\.\d{0,}0$"
-                    match = re.search(pattern, column)
-                    if match:  # column is a decimal number ending in 0
-                        # Omit any trailing zeros, and then any trailing decimal point
-                        column = column.rstrip("0").rstrip(".")
+                new_row = normalize_numbers_and_dates(row)
 
-                    pattern = r"^\-0$"
-                    match = re.search(pattern, column)
-                    if match:  # column value is negative 0
-                        column = "0"  # Replace with a non-negative 0
-                        
-                    else:
-                        column = normalize_date(column)  # if column's a date, normalize it
-
-                    new_row.append(column)
-
-                if ColumnOptionsType.column_collapse_pairs in column_options:
-                    new_row = collapse_columns(new_row, column_options[ColumnOptionsType.column_collapse_pairs])
-                if ColumnOptionsType.new_columns in column_options:
-                    new_row = reorder_columns_in_row(new_row, column_options[ColumnOptionsType.new_columns])
+                if column_collapse_pairs is not None:
+                    new_row = collapse_columns(new_row, column_collapse_pairs)
+                if new_columns is not None:
+                    new_row = reorder_columns_in_row(new_row, new_columns)
                 writer.writerow(new_row)
+
             else:  # index == 0; row is a column header row
-                if ColumnOptionsType.column_renames in column_options:
-                    row = rename_columns(row, column_options[ColumnOptionsType.column_renames])
-                if ColumnOptionsType.new_columns in column_options:
-                    row = reorder_columns_in_row(row, column_options[ColumnOptionsType.new_columns])
+
+                if column_renames is not None:
+                    row = rename_columns(row, column_renames)
+                if new_columns is not None:
+                    row = reorder_columns_in_row(row, new_columns)
                 writer.writerow(row)
 
     # Sort this CSV on the 1st (0-indexed) column
@@ -172,7 +159,7 @@ def do_csv_normalize(
     # So, I've replaced:
     #   csvsort(out, [1, 2])
     # with:
-    csv_sort(out, out_sorted, reverse=True)
+    csv_sort(out, f"{root}_3{ext}", reverse=True)
 
 
 def main():
