@@ -8,6 +8,10 @@ import csv
 import os
 import re
 
+# pip-installed
+from csvsort import csvsort
+
+
 def normalize_date(column):
 
     # TODO: Add option to reverse the order of month and day.
@@ -31,6 +35,7 @@ def normalize_date(column):
 
     return column
 
+
 def normalize_numbers_and_dates(row):
 
     # TODO Add an option to allow the "decimal comma" as alternative decimal separator.
@@ -38,7 +43,7 @@ def normalize_numbers_and_dates(row):
 
     new_row = []
     for column in row:
-        
+
         pattern = r"^\-{0,1}\d{1,}\.\d{0,}0$"
         match = re.search(pattern, column)
         if match:  # column is a decimal number ending in 0
@@ -49,13 +54,14 @@ def normalize_numbers_and_dates(row):
         match = re.search(pattern, column)
         if match:  # column value is negative 0
             column = "0"  # Replace with a non-negative 0
-            
+
         else:
             column = normalize_date(column)  # if column's a date, normalize it
 
         new_row.append(column)
 
     return new_row
+
 
 def reorder_columns_in_row(row, arg_new_columns):
 
@@ -108,22 +114,25 @@ def collapse_columns(row, column_collapse_pairs):
     return row
 
 
-def csv_sort(csv_file, sorted_csv_file, reverse=False):
+# def csv_sort(csv_file, sorted_csv_file, reverse=False):
 
-    # Sort input file csv_file to create output file sorted_csv_file
+#     # Sort input file csv_file to create output file sorted_csv_file
 
-    with open(csv_file, "r") as read_file, open(sorted_csv_file, "w") as write_file:
-        rows = read_file.readlines()
-        rows = [rows[0]] + sorted(rows[1:], reverse=reverse)
-        #   Sort non-header rows (leaving header row intact)
-        write_file.writelines(rows)
+#     with open(csv_file, "r") as read_file, open(sorted_csv_file, "w") as write_file:
+#         rows = read_file.readlines()
+#         rows = [rows[0]] + sorted(rows[1:], reverse=reverse)
+#         #   Sort non-header rows (leaving header row intact)
+#         write_file.writelines(rows)
 
-def do_csv_normalize(path, inp, column_renames=None, column_collapse_pairs=None, new_columns=None):
+
+def do_csv_normalize(
+    path, inp, column_renames=None, column_collapse_pairs=None, new_columns=None
+):
 
     os.chdir(path)
     (root, ext) = os.path.splitext(inp)
     out = f"{root}_2{ext}"
-    
+
     with open(inp, newline="") as inp_file, open(out, mode="w", newline="") as out_file:
 
         # Note that when the inp_file doesn't have a trailing blank line,
@@ -154,12 +163,11 @@ def do_csv_normalize(path, inp, column_renames=None, column_collapse_pairs=None,
 
     # Sort this CSV on the 1st (0-indexed) column
     #
-    # With python 3.8.2 in Windows 8.1 Pro, pip-installed module csvsort gives errors
+    # With python 3.8.2 in Windows 8.1 Pro, pip-installed module csvsort gave errors
     # even on its 1st demo program. (See test_csvsort in my private Python Playground.)
-    # So, I've replaced:
-    #   csvsort(out, [1, 2])
-    # with:
-    csv_sort(out, f"{root}_3{ext}", reverse=True)
+
+    # csv_sort(out, f"{root}_3{ext}", reverse=True)
+    csvsort(out, [0, 1])  # PyPi csvsort module has been fixed to work with Python 3.8.3
 
 
 def main():
